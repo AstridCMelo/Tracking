@@ -47,6 +47,7 @@ for video_name in video_path:
 
         bbox = (0, 0, 0, 0)
 
+        #Si se cancela la selección con c, se siga permitiendo seleccionar
         while(bbox == (0, 0, 0, 0)):
             bbox = cv2.selectROI ("Seleccionar objeto", frame , False)
 
