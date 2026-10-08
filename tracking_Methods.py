@@ -14,10 +14,10 @@ for video_name in video_path:
                 tracker = cv2.legacy.TrackerBoosting_create() 
             case 1:
                 tracker_name = 'MIL'
-                tracker = cv2.legacy.TrackerMIL_create() 
+                tracker = cv2.TrackerMIL_create() 
             case 2:
                 tracker_name = 'KCF'
-                tracker = cv2.legacy.TrackerKCF_create() 
+                tracker = cv2.TrackerKCF_create() 
             case 3:
                 tracker_name = 'TLD'
                 tracker = cv2.legacy.TrackerTLD_create() 
