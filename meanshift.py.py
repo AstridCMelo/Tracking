@@ -3,7 +3,7 @@ import numpy as np
 import os
 import time
 
-video_nombre = "trackingAstrid-2.mp4"
+video_nombre = "trackingJenifer-2.mp4"
 # Buscar  video
 video_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), video_nombre)
 
@@ -42,6 +42,14 @@ if not ok:
     video.release()
     exit()
 
+
+scale = 0.6
+new_width = int(width * scale)
+new_height = int(height * scale)
+frame = cv2.resize( frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+print(f"Resolución procesada: {new_width} x {new_height}")
+print(f"Escala aplicada: {scale * 100:.0f}%")
 # ============================================================
 # 4. SELECCIONAR EL OBJETO
 
@@ -52,15 +60,8 @@ print("Presiona ESC para cancelar.")
 cv2.namedWindow("Seleccionar objeto", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Seleccionar objeto", 800, 500)
 
-bbox = cv2.selectROI(
-    "Seleccionar objeto",
-    frame,
-    False,
-    False
-)
-
+bbox = cv2.selectROI("Seleccionar objeto",frame, False, False)
 cv2.destroyWindow("Seleccionar objeto")
-
 
 if bbox == (0, 0, 0, 0):
     print("No se seleccionó ningún objeto.")
@@ -68,7 +69,6 @@ if bbox == (0, 0, 0, 0):
     exit()
 x, y, w, h = bbox
 print(f"\nROI seleccionada: x={x}, y={y}, w={w}, h={h}")
-
 
 # ============================================================
 # 5.  HISTOGRAMA DEL OBJETO
@@ -78,7 +78,7 @@ roi = frame[y:y+h, x:x+w]
 #  ROI de BGR a HSV
 hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 #  máscara  eliminar píxeles oscuros
-mask = cv2.inRange(hsv_roi,np.array((0., 60., 32.)), np.array((180., 255., 255.)))
+mask = cv2.inRange(hsv_roi,np.array((0., 90., 50.)), np.array((180., 255., 255.)))
 
 # Histograma  Hue
 roi_hist = cv2.calcHist([hsv_roi], [0], mask, [180], [0, 180])
@@ -89,8 +89,7 @@ cv2.normalize( roi_hist, roi_hist,0,255,cv2.NORM_MINMAX)
 
 # ============================================================
 # 6. CRITERIO  TERMINACIÓN  MEANSHIFT
-term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,10,1)
-
+term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,20,1)
 
 nombre_video = os.path.splitext(video_nombre)[0]
 # Carpeta  guardar  
@@ -99,7 +98,13 @@ carpeta_salida = os.path.join(os.path.dirname(video_path),"meanshift")
 output_path = os.path.join( carpeta_salida, nombre_video + "_MeanShift.mp4")
 
 codec = cv2.VideoWriter_fourcc(*"mp4v")
-out = cv2.VideoWriter( output_path,codec,fps_video,(width, height))
+os.makedirs(carpeta_salida, exist_ok=True)
+out = cv2.VideoWriter( output_path, codec, fps_video,(new_width, new_height))
+
+if not out.isOpened():
+    print("Error al crear el video de salida.")
+    video.release()
+    exit()
 
 # ============================================================
 # 8. MÉTRICAS
@@ -115,13 +120,16 @@ displacement_count = 0
 
 # ============================================================
 # 9. TRACKING MEANSHIFT
-
+cv2.namedWindow("MeanShift Tracking", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("MeanShift Tracking", 800, 500)
 while True:
 
     ok, frame = video.read()
     if not ok:
         break
     frame_count += 1
+
+    frame = cv2.resize(  frame,  (new_width, new_height), interpolation=cv2.INTER_AREA)
     # --------------------------------------------------------
     # Convertir frame a HSV
     hsv = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
@@ -161,20 +169,14 @@ while True:
     # ========================================================
     # DIBUJO BOUNDING BOX
     cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
-
-    # ========================================================
-    # NOMBRE DEL MÉTODO
-
     cv2.putText( frame, "Tracking - MeanShift", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
     # ========================================================
     # FPS  TRACKER
-
     if tracking_time > 0:
         current_fps = 1 / tracking_time
     else:
         current_fps = 0
-
     cv2.putText( frame, f"FPS tracker: {current_fps:.2f}", (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
     
@@ -188,8 +190,6 @@ while True:
     # ESC PARA SALIR
     if cv2.waitKey(1) & 0xFF == 27:
         break
-
-
 # ============================================================
 # 10. MÉTRICAS 
 
@@ -197,21 +197,15 @@ total_elapsed_time = time.time() - total_elapsed_start
 if frame_count > 0:
     average_fps = ( frame_count / total_elapsed_time)
     average_frame_time = ( total_elapsed_time / frame_count)
-
 else:
     average_fps = 0
     average_frame_time = 0
-
-
 if total_tracking_time > 0:
     tracker_fps = ( frame_count / total_tracking_time )
-
 else:
     tracker_fps = 0
-
 if displacement_count > 0:
     average_displacement = (total_displacement / displacement_count)
-
 else:
     average_displacement = 0
 
@@ -222,7 +216,6 @@ else:
 print("\n========================================")
 print("RESULTADOS MEANSHIFT")
 print("========================================")
-
 print(f"Frames procesados: {frame_count}")
 print(f"FPS promedio general: " f"{average_fps:.2f} fps")
 print( f"FPS del tracker: " f"{tracker_fps:.2f} fps")
