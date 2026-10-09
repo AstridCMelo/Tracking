@@ -1,0 +1,225 @@
+import cv2
+import time
+import os
+import tkinter as tk
+from tkinter import filedialog
+
+
+# ============================================================
+# 1. SELECCIONAR VIDEO
+root = tk.Tk()
+root.withdraw()
+video_path = filedialog.askopenfilename(
+    title="Seleccionar video para tracking",
+    filetypes=[("Videos", "*.mp4 *.avi *.mov *.mkv"),("Todos los archivos", "*.*")]
+)
+
+if not video_path:
+    print("No se seleccionó ningún video.")
+    exit()
+
+video_name = os.path.splitext(os.path.basename(video_path))[0]
+print(f"\nVideo seleccionado: {video_name}")
+
+# ============================================================
+# 2. CREAR CARPETA DE RESULTADOS
+output_folder = os.path.join(os.path.dirname(video_path),f"resultados_{video_name}")
+os.makedirs(output_folder, exist_ok=True)
+
+# ============================================================
+# 3. ABRIR VIDEO 
+video = cv2.VideoCapture(video_path)
+if not video.isOpened():
+    print("Error al abrir el video.")
+    exit()
+fps_video = video.get(cv2.CAP_PROP_FPS)
+width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+total_frames_video = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+ok, frame = video.read()
+video.release()
+
+# ============================================================
+# 4. SELECCIONAR OBJETO
+cv2.namedWindow("Seleccionar objeto", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("Seleccionar objeto", 640, 360)
+
+print("\nSelecciona el objeto a seguir.")
+print("Presiona ENTER.")
+bbox = cv2.selectROI("Seleccionar objeto",frame,False,False)
+cv2.destroyWindow("Seleccionar objeto")
+
+# Verificacion
+if bbox == (0, 0, 0, 0):
+    print("No se seleccionó ningún objeto.")
+    exit()
+
+# ============================================================
+# 5.  TRACKERS
+trackers = ["Boosting","MIL","KCF","TLD","MOSSE","CSRT"]
+
+# ============================================================
+# 6.  ARCHIVO DE RESULTADOS
+results_path = os.path.join(output_folder,"resultados.txt")
+results_file = open(results_path,"w",encoding="utf-8")
+results_file.write("========================================\n")
+results_file.write("RESULTADOS TRACKING\n")
+results_file.write("========================================\n\n")
+results_file.write(f"Video: {os.path.basename(video_path)}\n")
+results_file.write(f"Resolución: {width} x {height}\n")
+results_file.write(f"FPS del video: {fps_video:.2f}\n")
+results_file.write(f"Frames totales: {total_frames_video}\n")
+results_file.write(f"Objeto seleccionado: {bbox}\n\n")
+
+# ============================================================
+# 7. EJECUTAR CADA TRACKER
+for tracker_name in trackers:
+    print("\n========================================")
+    print(f"Tracking Método {tracker_name}")
+    print(" ")
+    # metodo tracker
+    if tracker_name == "Boosting":
+        tracker = cv2.legacy.TrackerBoosting_create()
+    elif tracker_name == "MIL":
+        tracker = cv2.TrackerMIL_create()
+    elif tracker_name == "KCF":
+        tracker = cv2.TrackerKCF_create()
+    elif tracker_name == "TLD":
+        tracker = cv2.legacy.TrackerTLD_create()
+    elif tracker_name == "MOSSE":
+        tracker = cv2.legacy.TrackerMOSSE_create()
+    elif tracker_name == "CSRT":
+        tracker = cv2.TrackerCSRT_create()
+    # --------------------------------------------------------
+    # Abrir video
+    video = cv2.VideoCapture(video_path)
+    # --------------------------------------------------------
+    # Crear / guardar videos trackers
+    output_path = os.path.join(output_folder,f"{tracker_name}.mp4")
+    codec = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path,codec,fps_video,(width, height))
+    # --------------------------------------------------------
+    # Leer  frame
+    ok, frame = video.read()
+    # --------------------------------------------------------
+    # Inicializar tracker
+    tracker.init(frame, bbox)
+
+    # ========================================================
+    # MÉTRICAS
+    #frames
+    frame_count = 0
+    successful_frames = 0
+    failed_frames = 0
+    #tiempo
+    total_tracking_time = 0
+    # desplazamiento del bounding box
+    previous_center = None
+    total_displacement = 0
+    displacement_count = 0
+
+    # ========================================================
+    # PROCESAMIENTO
+    start_time = time.time()
+    while True:
+        ok, frame = video.read()
+        if not ok:
+            break
+        frame_count += 1
+
+        # tiempo de tracking
+        timer = cv2.getTickCount()
+        ok_tracking, new_bbox = tracker.update(frame)
+        tracking_time = (cv2.getTickCount() - timer) / cv2.getTickFrequency()
+        total_tracking_time += tracking_time
+
+        # FPS  TRACKER PARA ESTE FRAME
+        if tracking_time > 0:
+            current_fps = 1 / tracking_time
+        else:
+            current_fps = 0
+
+        # frames buenos
+        if ok_tracking:
+            successful_frames += 1
+            x, y, w, h = [int(v) for v in new_bbox]
+            cv2.rectangle(frame,(x, y),(x + w, y + h), (255, 0, 0),2)
+            cv2.putText(frame,f"{tracker_name}",(10, 30),cv2.FONT_HERSHEY_SIMPLEX,0.8,(0, 255, 0),2)
+            cv2.putText( frame,f"FPS tracker: {current_fps:.2f}",(10, 65),cv2.FONT_HERSHEY_SIMPLEX,0.7,(0, 255, 0),2)
+
+            # CENTRO  BOUNDING BOX
+            center_x = x + w / 2
+            center_y = y + h / 2
+            current_center = (center_x,center_y)
+
+            # DESPLAZAMIENTO BOUNDING BOX
+            if previous_center is not None:
+                displacement = ((current_center[0]- previous_center[0]) ** 2
+                    +(current_center[1]- previous_center[1]) ** 2) ** 0.5
+                total_displacement += displacement
+                displacement_count += 1
+            previous_center = current_center
+
+        # ----------------------------------------------------
+        # frames incorrectos
+        else:
+            failed_frames += 1
+            cv2.putText(frame,"Tracking fallido",(10, 30),cv2.FONT_HERSHEY_SIMPLEX,0.8,(0, 0, 255),2)
+        
+     
+        # GUARDAR FRAME
+        out.write(frame)
+
+        # MOSTRAR VIDEO
+        cv2.namedWindow("Tracking",cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Tracking",640,360)
+        cv2.imshow("Tracking",frame)
+
+        # ESC para detener
+        if cv2.waitKey(1) & 0xFF == 27:
+            break
+
+    # ========================================================
+    # MÉTRICAS
+    total_elapsed_time = time.time() - start_time
+    # FPS promedio general
+    if total_elapsed_time > 0:
+        average_fps = (frame_count /total_elapsed_time)
+    else:
+        average_fps = 0
+    # Tiempo promedio por frame
+    if frame_count > 0:
+        average_frame_time = ( total_elapsed_time / frame_count)
+    else:
+        average_frame_time = 0
+    # FPS  del tracker
+    if total_tracking_time > 0:
+        tracker_fps = (frame_count /total_tracking_time)
+    else:
+        tracker_fps = 0
+    # Desplazamiento promedio
+    if displacement_count > 0:
+        average_displacement = (total_displacement /displacement_count)
+    else:
+        average_displacement = 0
+
+    # ========================================================
+    # GUARDAR RESULTADOS EN TXT
+    results_file.write(f"========================================\n")
+    results_file.write(f"MÉTODO: {tracker_name}\n")
+    results_file.write(f"========================================\n")
+    results_file.write(f"Frames procesados: {frame_count}\n")
+    results_file.write(f"Frames exitosos: {successful_frames}\n")
+    results_file.write(f"Frames fallidos: {failed_frames}\n")
+    results_file.write(f"FPS promedio general: "f"{average_fps:.2f}\n")
+    results_file.write(f"FPS del tracker: "f"{tracker_fps:.2f}\n")
+    results_file.write(f"Tiempo total de procesamiento: "f"{total_elapsed_time:.4f} segundos\n" )
+    results_file.write(f"Tiempo promedio por frame: "f"{average_frame_time * 1000:.4f} ms\n")
+    results_file.write(f"Desplazamiento promedio del bounding box: "f"{average_displacement:.2f} px\n")
+    results_file.write("\n")
+
+    video.release()
+    out.release()
+    cv2.destroyAllWindows()
+results_file.close()
+cv2.destroyAllWindows()
